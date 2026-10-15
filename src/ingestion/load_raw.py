@@ -79,10 +79,10 @@ def load_csv(path: Path) -> pd.DataFrame:
         - Encoding habitual: 'utf-8' o 'latin-1'. Probamos utf-8 y fallback.
     """
     try:
-        df = pd.read_csv(path, encoding="utf-8")
+        df = pd.read_csv(path, encoding="utf-8", parse_dates=["InvoiceDate"])
     except UnicodeDecodeError:
         logger.warning("UTF-8 falló, probando latin-1...")
-        df = pd.read_csv(path, encoding="latin-1")
+        df = pd.read_csv(path, encoding="latin-1", parse_dates=["InvoiceDate"])
     return df
 
 

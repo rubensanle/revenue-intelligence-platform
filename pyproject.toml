@@ -38,6 +38,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "requests>=2.31",
     "tqdm>=4.66",
+    "tabulate>=0.9",
 ]
 
 [project.optional-dependencies]
