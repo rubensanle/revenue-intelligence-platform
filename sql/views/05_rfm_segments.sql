@@ -10,8 +10,8 @@ customer_agg AS (
         MAX(invoice_date)                                          AS last_purchase,
         COUNT(DISTINCT invoice_no)                                 AS frequency,
         ROUND(SUM(net_revenue_line), 2)                            AS monetary
-    FROM v_sales_lines
-    WHERE customer_id IS NOT NULL
+    FROM v_sales_lines 
+    WHERE customer_id IS NOT NULL 
     GROUP BY customer_id
 ),
 rfm_base AS (
@@ -28,10 +28,14 @@ rfm_scored AS (
         recency_days,
         frequency,
         monetary,
-        -- Score 1–5 con NTILE (más alto = mejor)
-        NTILE(5) OVER (ORDER BY recency_days ASC)                 AS r_score,
-        NTILE(5) OVER (ORDER BY frequency DESC)                   AS f_score,
-        NTILE(5) OVER (ORDER BY monetary DESC)                    AS m_score
+        -- Score 1–5 con NTILE.
+        -- Regla: score 5 = mejor en las tres métricas.
+        --   recency:   mejor = menos días  → ORDER BY recency_days DESC
+        --   frequency: mejor = más facturas → ORDER BY frequency ASC
+        --   monetary:  mejor = más gasto    → ORDER BY monetary ASC
+        NTILE(5) OVER (ORDER BY recency_days DESC)                AS r_score,
+        NTILE(5) OVER (ORDER BY frequency ASC)                    AS f_score,
+        NTILE(5) OVER (ORDER BY monetary ASC)                     AS m_score
     FROM rfm_base
 )
 SELECT

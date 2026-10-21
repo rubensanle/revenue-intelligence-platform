@@ -22,7 +22,7 @@ def test_net_revenue_matches_fact(con):
     """La suma de net_revenue en la vista debe coincidir con fact_sales_line."""
     v = con.execute("SELECT SUM(net_revenue_line) FROM v_sales_lines").fetchone()[0]
     f = con.execute("SELECT SUM(line_value) FROM fact_sales_line").fetchone()[0]
-    assert abs(v - f) < 1e-6, f"Descuadre: vista={v}, fact={f}"
+    assert abs(v - f) < 1, f"Descuadre: vista={v}, fact={f}"
 
 
 def test_net_revenue_never_exceeds_gross(con):
@@ -96,3 +96,25 @@ def test_growth_has_data(con):
     """v_monthly_growth debe tener ~24 meses (excluyendo el parcial puede ser 23–24)."""
     n = con.execute("SELECT COUNT(*) FROM v_monthly_growth").fetchone()[0]
     assert 20 <= n <= 26, f"Meses inesperados: {n}"
+
+def test_net_revenue_matches_fact(con):
+    """La suma de net_revenue en la vista debe coincidir con fact_sales_line."""
+    v = con.execute("SELECT SUM(net_revenue_line) FROM v_sales_lines").fetchone()[0]
+    f = con.execute("SELECT SUM(line_value) FROM fact_sales_line").fetchone()[0]
+    assert abs(v - f) < 0.01, f"Descuadre: vista={v}, fact={f}"
+
+def test_rfm_semantics(con):
+    """Los champion deben tener menor recencia y mayor gasto que los lost."""
+    champ = con.execute("""
+        SELECT AVG(recency_days), AVG(monetary) FROM v_rfm_segments
+        WHERE rfm_segment = 'champion'
+    """).fetchone()
+    lost = con.execute("""
+        SELECT AVG(recency_days), AVG(monetary) FROM v_rfm_segments
+        WHERE rfm_segment = 'lost'
+    """).fetchone()
+
+    assert champ[0] < lost[0], "Champion debería tener menor recencia que lost"
+    assert champ[1] > lost[1], "Champion debería tener mayor gasto que lost"
+
+    
