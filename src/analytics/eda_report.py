@@ -28,6 +28,8 @@ from src.analytics.diagnostics import (
     q3_rfm_distribution,
     q4_country_ranking,
     q5_forecastability,
+    q6_returns_by_product,
+    q6_returns_by_customer
 )
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -180,15 +182,30 @@ def section_2_products() -> str:
             ]
         )
 
+    wholesale = trend[trend["trend"] == "wholesale_dependent"]
+
+    if not wholesale.empty:
+        out += f"\n### Productos dependientes de mayoristas ({len(wholesale)})\n\n"
+        out += "Productos con **alguna línea > 10.000 unidades**. "
+        out += "Su `growth_pct` no se calcula porque un solo pedido mayorista "
+        out += "distorsiona la serie. Se muestran métricas absolutas.\n\n"
+        out += df_to_md(
+            wholesale.nlargest(10, "units_recent")[
+                ["stock_code", "units_recent", "units_previous",
+                "units_per_month_recent", "n_invoices_recent"]
+            ]
+        )
+
     # Anomalías
     if not anomalies.empty:
         out += f"\n### Anomalías de devoluciones ({len(anomalies)})\n\n"
-        out += "Productos con más devoluciones que ventas en el período reciente. "
-        out += "Puede ser ajuste de inventario o error de recolección. "
-        out += "**Se excluyen del ranking de declives.**\n\n"
+        out += "Productos con **tasa de devolución > 50%** en el período reciente "
+        out += "o con **devoluciones masivas históricas** (`units_previous < 0`). "
+        out += "Puede ser devolución de ventas anteriores, ajuste de inventario o error.\n\n"
         out += df_to_md(
-            anomalies.nsmallest(5, "delta")[
-                ["stock_code", "units_recent", "units_previous", "delta"]
+            anomalies.nsmallest(10, "delta")[
+                ["stock_code", "units_recent", "units_previous", "delta",
+                "return_rate_recent_pct"]
             ]
         )
 
@@ -283,7 +300,66 @@ def section_5_forecastability() -> str:
     return out
 
 
-def section_6_limitations() -> str:
+def section_6_returns() -> str:
+    """Pregunta 6: ¿Qué productos y clientes devuelven más?"""
+    by_product = q6_returns_by_product()
+    by_customer = q6_returns_by_customer()
+
+    high_products = by_product[by_product["return_severity"] == "high_return_rate"]
+    high_customers = by_customer[by_customer["returner_severity"] == "high_returner"]
+
+    out = "## Pregunta 6 — ¿Qué productos y clientes devuelven más?\n\n"
+
+    # Productos
+    out += "### Devoluciones por producto\n\n"
+    out += f"- **Productos con devoluciones:** {len(by_product)}\n"
+    out += f"- **Productos con tasa alta (>50%):** {len(high_products)}\n\n"
+    out += "**Top 10 productos más devueltos:**\n\n"
+
+    with_sales = by_product[by_product["return_severity"] != "no_sales_but_returns"]
+    no_sales = by_product[by_product["return_severity"] == "no_sales_but_returns"]
+
+    out += "**Top 10 productos más devueltos (con ventas):**\n\n"
+    out += df_to_md(
+        with_sales.head(10)[
+            ["stock_code", "description", "units_returned_recent",
+             "units_sold_recent", "return_rate_recent_pct", "return_severity"]
+        ]
+    )
+
+    if not no_sales.empty:
+        out += "\n**Productos con devoluciones pero sin ventas (casos especiales):**\n\n"
+        out += "Puede ser devolución de ventas anteriores, ajuste de inventario o error. "
+        out += "**No tienen `return_rate`** (no se puede calcular sin ventas).\n\n"
+        out += df_to_md(
+            no_sales.head(5)[
+                ["stock_code", "description", "units_returned_recent",
+                 "units_sold_recent", "return_severity"]
+            ]
+        )
+
+    # Clientes
+    out += "\n### Devoluciones por cliente\n\n"
+    out += f"- **Clientes con devoluciones:** {len(by_customer)}\n"
+    out += f"- **Clientes con tasa alta (>30%):** {len(high_customers)}\n\n"
+    out += "**Top 10 clientes que más devuelven (unidades):**\n\n"
+    out += df_to_md(
+        by_customer.head(10)[
+            ["customer_id", "country", "units_returned_recent",
+             "units_sold_recent", "return_rate_units_pct", "returner_severity"]
+        ]
+    )
+
+    # Interpretación
+    out += "\n**Interpretación:**\n\n"
+    out += "- `high_return_rate` (producto): >50% de devoluciones. Producto problemático.\n"
+    out += "- `high_returner` (cliente): >30% de devoluciones. Cliente problemático.\n"
+    out += "- Los clientes con tasa alta pueden ser devolvedores crónicos o compradores B2B que devuelven stock.\n"
+    out += "- Los productos con tasa alta pueden tener problemas de calidad o descripción engañosa.\n"
+
+    return out
+
+def section_7_limitations() -> str:
     """Limitaciones y decisiones de los datos."""
     return (
         "## Limitaciones de los datos\n\n"
@@ -298,7 +374,7 @@ def section_6_limitations() -> str:
         "- **Los productos con un porcentaje de growth muy alto, se debe a que en el periodo anterior no se vendieron unidades, "
         "debido a estacionalidad o a nuevas salidas al mercado,lo que resulta en un crecimiento relativo elevado.**\n"
         "- **Pedidos mayoristas puntuales**: productos con líneas > 10.000 unidades "
-        "se marcan como `wholesale_dependent`.\n"
+        "se marcan como `wholesale_dependent y no se calcula su growth_pct`.\n"
         "- **Mes parcial**: diciembre 2011 está incompleto (9 días). "
         "Se excluye de los análisis temporales.\n"
         "- **Sábados**: solo hay 1 día con ventas en sábado en 2 años. "
@@ -319,7 +395,8 @@ def main() -> None:
         section_3_customers(),
         section_4_markets(),
         section_5_forecastability(),
-        section_6_limitations(),
+        section_6_returns(),
+        section_7_limitations(),
     ]
 
     content = "\n".join(parts)

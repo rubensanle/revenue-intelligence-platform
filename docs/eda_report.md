@@ -54,21 +54,21 @@ Este informe responde a las **5 preguntas de negocio** del proyecto. Todas las c
 
 ### Clasificación de tendencias
 
-| trend           |   n_products |
-|:----------------|-------------:|
-| stable          |          913 |
-| growing         |          685 |
-| new_launch      |          501 |
-| declining       |          359 |
-| dead            |           91 |
-| anomaly_returns |           78 |
-| dormant         |            4 |
+| trend               |   n_products |
+|:--------------------|-------------:|
+| stable              |          913 |
+| growing             |          650 |
+| new_launch          |          498 |
+| declining           |          359 |
+| anomaly_returns     |          128 |
+| dead                |           78 |
+| dormant             |            4 |
+| wholesale_dependent |            1 |
 
 **Top 10 productos en crecimiento (base comparable):**
 
 |   stock_code |   units_recent |   units_previous |   delta |   growth_pct |
 |-------------:|---------------:|-----------------:|--------:|-------------:|
-|        84347 |           6081 |            -6887 |   12968 |        188.3 |
 |        22197 |          31535 |            18694 |   12841 |         68.7 |
 |        22952 |          13634 |             1360 |   12274 |        902.5 |
 |        22086 |          14236 |             2552 |   11684 |        457.8 |
@@ -78,6 +78,7 @@ Este informe responde a las **5 preguntas de negocio** del proyecto. Todas las c
 |        20668 |           8973 |             2436 |    6537 |        268.3 |
 |        21915 |          13569 |             7145 |    6424 |         89.9 |
 |        22909 |           7107 |              905 |    6202 |        685.3 |
+|        22910 |           7763 |             1619 |    6144 |        379.5 |
 
 **Top 10 productos en declive (reales):**
 
@@ -94,7 +95,7 @@ Este informe responde a las **5 preguntas de negocio** del proyecto. Todas las c
 |        40016 |            517 |             3079 |   -2562 |        -83.2 |
 |        18007 |            398 |             2652 |   -2254 |        -85   |
 
-### 🚀 Productos nuevos (501)
+### Productos nuevos (498)
 
 Lanzados después de feb-2011. **No tienen `growth_pct`** (no hay base comparable). Se evalúan por métricas absolutas: `units_per_month`, `n_invoices`, `avg_units_per_invoice`.
 
@@ -111,7 +112,7 @@ Lanzados después de feb-2011. **No tienen `growth_pct`** (no hay base comparabl
 |        23206 | 2011-04-11 00:00:00 |           8515 |                   1419.2 |                 765 |                    11.1 |
 |        23202 | 2011-05-06 00:00:00 |           8377 |                   1396.2 |                 735 |                    11.4 |
 
-### 💤 Productos dormidos (4)
+### Productos dormidos (4)
 
 Existían antes pero no vendieron en el período anterior (estacionalidad, baja rotación, o pausa). **No tienen `growth_pct`.**
 
@@ -122,17 +123,30 @@ Existían antes pero no vendieron en el período anterior (estacionalidad, baja 
 | 81952V       | 2009-12-02 00:00:00 |            365 |                     60.8 |                  24 |
 | 81952B       | 2010-01-11 00:00:00 |            200 |                     33.3 |                   9 |
 
-### ⚠️ Anomalías de devoluciones (78)
+### Productos dependientes de mayoristas (1)
 
-Productos con más devoluciones que ventas en el período reciente. Puede ser ajuste de inventario o error de recolección. **Se excluyen del ranking de declives.**
+Productos con **alguna línea > 10.000 unidades**. Su `growth_pct` no se calcula porque un solo pedido mayorista distorsiona la serie. Se muestran métricas absolutas.
 
-| stock_code   |   units_recent |   units_previous |   delta |
-|:-------------|---------------:|-----------------:|--------:|
-| 23005        |         -14705 |               67 |  -14772 |
-| 23003        |          -9010 |              494 |   -9504 |
-| 79323W       |          -4830 |               -8 |   -4822 |
-| 79323LP      |          -2618 |                0 |   -2618 |
-| 21399        |           -154 |             1981 |   -2135 |
+|   stock_code |   units_recent |   units_previous |   units_per_month_recent |   n_invoices_recent |
+|-------------:|---------------:|-----------------:|-------------------------:|--------------------:|
+|        23166 |           2540 |              792 |                    423.3 |                 205 |
+
+### Anomalías de devoluciones (128)
+
+Productos con **tasa de devolución > 50%** en el período reciente o con **devoluciones masivas históricas** (`units_previous < 0`). Puede ser devolución de ventas anteriores, ajuste de inventario o error.
+
+| stock_code   |   units_recent |   units_previous |   delta |   return_rate_recent_pct |
+|:-------------|---------------:|-----------------:|--------:|-------------------------:|
+| 23005        |         -14705 |               67 |  -14772 |                    81.03 |
+| 23003        |          -9010 |              494 |   -9504 |                    99.47 |
+| 79323W       |          -4830 |               -8 |   -4822 |                   100    |
+| 79323LP      |          -2618 |                0 |   -2618 |                   100    |
+| 21399        |           -154 |             1981 |   -2135 |                    94.25 |
+| 79323P       |          -2003 |               -4 |   -1999 |                   100    |
+| 21700        |           -747 |             1107 |   -1854 |                    69.09 |
+| 23270        |          -1735 |                0 |   -1735 |                    71.49 |
+| 22618        |          -1681 |               49 |   -1730 |                   100    |
+| 79323B       |          -1671 |                0 |   -1671 |                   100    |
 
 ### Top 10 productos por ingreso
 
@@ -161,12 +175,12 @@ Productos con más devoluciones que ventas en el período reciente. Puede ser aj
 
 | rfm_segment   |   n_customers |   pct_customers |   avg_recency_days |   avg_frequency |   avg_monetary |    total_revenue |   pct_revenue |
 |:--------------|--------------:|----------------:|-------------------:|----------------:|---------------:|-----------------:|--------------:|
-| champion      |          1504 |           25.31 |                 18 |            18.9 |        7736.89 |      1.16363e+07 |         71.43 |
-| loyal         |          1210 |           20.36 |                 78 |             6.6 |        1984.68 |      2.40146e+06 |         14.74 |
-| at_risk       |           850 |           14.3  |                370 |             6   |        1576.58 |      1.34009e+06 |          8.23 |
-| lost          |          1528 |           25.72 |                465 |             1.3 |         329.52 | 503509           |          3.09 |
-| new           |           447 |            7.52 |                 27 |             1.5 |         464.52 | 207641           |          1.27 |
-| regular       |           403 |            6.78 |                108 |             1.5 |         498.78 | 201009           |          1.23 |
+| champion      |          1499 |           25.23 |                 19 |            19   |        7764.5  |      1.1639e+07  |         71.45 |
+| loyal         |          1249 |           21.02 |                 78 |             6.5 |        1945.74 |      2.43023e+06 |         14.92 |
+| at_risk       |           816 |           13.73 |                366 |             6.1 |        1608.14 |      1.31224e+06 |          8.06 |
+| lost          |          1562 |           26.29 |                465 |             1.4 |         339.34 | 530046           |          3.25 |
+| new           |           438 |            7.37 |                 26 |             1.5 |         459.48 | 201250           |          1.24 |
+| regular       |           378 |            6.36 |                107 |             1.4 |         468.88 | 177236           |          1.09 |
 
 ## Pregunta 4 — ¿Qué mercados son más importantes?
 
@@ -225,12 +239,75 @@ Total de productos: 5,285
 | 15036        |              101 |         44323 |              438.84 | 1.2  |
 | 22492        |               82 |         43254 |              527.49 | 0.71 |
 
+## Pregunta 6 — ¿Qué productos y clientes devuelven más?
+
+### Devoluciones por producto
+
+- **Productos con devoluciones:** 4049
+- **Productos con tasa alta (>50%):** 94
+
+**Top 10 productos más devueltos:**
+
+**Top 10 productos más devueltos (con ventas):**
+
+|   stock_code | description                         |   units_returned_recent |   units_sold_recent |   return_rate_recent_pct | return_severity    |
+|-------------:|:------------------------------------|------------------------:|--------------------:|-------------------------:|:-------------------|
+|        23005 | TRAVEL CARD WALLET I LOVE LONDON    |                   19200 |                4495 |                    81.03 | high_return_rate   |
+|        23003 | TRAVEL CARD WALLET VINTAGE ROSE     |                    9058 |                  48 |                    99.47 | high_return_rate   |
+|        20713 | JUMBO BAG OWLS                      |                    4032 |                7310 |                    35.55 | medium_return_rate |
+|        16045 | POPART WOODEN PENCILS ASST          |                    3667 |                8400 |                    30.39 | medium_return_rate |
+|        16259 | PIECE OF CAMO STATIONERY SET        |                    3275 |                2948 |                    52.63 | high_return_rate   |
+|        23270 | SET OF 2 CERAMIC PAINTED HEARTS     |                    2886 |                1151 |                    71.49 | high_return_rate   |
+|        18007 | ESSENTIAL BALM 3.5g TIN IN ENVELOPE |                    2834 |                3232 |                    46.72 | medium_return_rate |
+|        21829 | DINOSAUR KEYRINGS ASSORTED          |                    2437 |                3602 |                    40.35 | medium_return_rate |
+|        23113 | PANTRY CHOPPING BOARD               |                    2386 |                1145 |                    67.57 | high_return_rate   |
+|        23343 | JUMBO BAG VINTAGE CHRISTMAS         |                    1868 |                5301 |                    26.06 | medium_return_rate |
+
+**Productos con devoluciones pero sin ventas (casos especiales):**
+
+Puede ser devolución de ventas anteriores, ajuste de inventario o error. **No tienen `return_rate`** (no se puede calcular sin ventas).
+
+| stock_code   | description              |   units_returned_recent |   units_sold_recent | return_severity      |
+|:-------------|:-------------------------|------------------------:|--------------------:|:---------------------|
+| 79323W       | WHITE CHERRY LIGHTS      |                    4830 |                   0 | no_sales_but_returns |
+| 79323LP      | LIGHT PINK CHERRY LIGHTS |                    2618 |                   0 | no_sales_but_returns |
+| 79323P       | PINK CHERRY LIGHTS       |                    2003 |                   0 | no_sales_but_returns |
+| 22618        | COOKING SET RETROSPOT    |                    1681 |                   0 | no_sales_but_returns |
+| 79323B       | BLACK CHERRY LIGHTS      |                    1671 |                   0 | no_sales_but_returns |
+
+### Devoluciones por cliente
+
+- **Clientes con devoluciones:** 1026
+- **Clientes con tasa alta (>30%):** 55
+
+**Top 10 clientes que más devuelven (unidades):**
+
+|   customer_id | country        |   units_returned_recent |   units_sold_recent |   return_rate_units_pct | returner_severity   |
+|--------------:|:---------------|------------------------:|--------------------:|------------------------:|:--------------------|
+|         16029 | United Kingdom |                    6060 |               23526 |                   20.48 | medium_returner     |
+|         12931 | United Kingdom |                    4427 |               24734 |                   15.18 | medium_returner     |
+|         14607 | United Kingdom |                    3768 |               10434 |                   26.53 | medium_returner     |
+|         17949 | United Kingdom |                    2854 |               23846 |                   10.69 | medium_returner     |
+|         14911 | EIRE           |                    2803 |               58260 |                    4.59 | low_returner        |
+|         15482 | United Kingdom |                    2022 |                4579 |                   30.63 | high_returner       |
+|         15769 | United Kingdom |                    2012 |               12916 |                   13.48 | medium_returner     |
+|         16938 | United Kingdom |                    1515 |                2198 |                   40.8  | high_returner       |
+|         17511 | United Kingdom |                    1454 |               32498 |                    4.28 | low_returner        |
+|         12748 | United Kingdom |                    1281 |               18648 |                    6.43 | low_returner        |
+
+**Interpretación:**
+
+- `high_return_rate` (producto): >50% de devoluciones. Producto problemático.
+- `high_returner` (cliente): >30% de devoluciones. Cliente problemático.
+- Los clientes con tasa alta pueden ser devolvedores crónicos o compradores B2B que devuelven stock.
+- Los productos con tasa alta pueden tener problemas de calidad o descripción engañosa.
+
 ## Limitaciones de los datos
 
 - **Dataset sin documentación**: Online Retail II es un dataset público sin información sobre su recolección. Las anomalías pueden ser reales o errores; no podemos determinarlo.
 - **Anomalías de devoluciones**: algunos productos tienen más devoluciones que ventas en ciertos períodos (`anomaly_returns`). Se excluyen del ranking de declives para no distorsionar el análisis.
 - **Pedidos mayoristas cancelados**: se usa `units_net_line` (ventas - cancelaciones - devoluciones) para netear pedidos cancelados.
 - **Los productos con un porcentaje de growth muy alto, se debe a que en el periodo anterior no se vendieron unidades, debido a estacionalidad o a nuevas salidas al mercado,lo que resulta en un crecimiento relativo elevado.**
-- **Pedidos mayoristas puntuales**: productos con líneas > 10.000 unidades se marcan como `wholesale_dependent`.
+- **Pedidos mayoristas puntuales**: productos con líneas > 10.000 unidades se marcan como `wholesale_dependent y no se calcula su growth_pct`.
 - **Mes parcial**: diciembre 2011 está incompleto (9 días). Se excluye de los análisis temporales.
 - **Sábados**: solo hay 1 día con ventas en sábado en 2 años. El negocio opera principalmente de lunes a viernes.

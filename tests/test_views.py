@@ -117,4 +117,83 @@ def test_rfm_semantics(con):
     assert champ[0] < lost[0], "Champion debería tener menor recencia que lost"
     assert champ[1] > lost[1], "Champion debería tener mayor gasto que lost"
 
+
+def test_returns_by_product_has_data(con):
+    """v_returns_by_product debe tener datos."""
+    n = con.execute("SELECT COUNT(*) FROM v_returns_by_product").fetchone()[0]
+    assert n > 0, "v_returns_by_product está vacía"
+
+
+def test_returns_by_product_rates_in_range(con):
+    """Las tasas de devolución deben estar entre 0 y 100."""
+    row = con.execute("""
+        SELECT MIN(return_rate_recent_pct), MAX(return_rate_recent_pct)
+        FROM v_returns_by_product
+        WHERE return_rate_recent_pct IS NOT NULL
+    """).fetchone()
+    assert row[0] >= 0, f"Tasa mínima negativa: {row[0]}"
+    assert row[1] <= 100, f"Tasa máxima > 100: {row[1]}"
+
+
+def test_returns_by_product_severity_valid(con):
+    """Las severidades deben ser válidas."""
+    valid = {"no_returns", "no_sales", "high_return_rate", "medium_return_rate", "low_return_rate"}
+    rows = con.execute("SELECT DISTINCT return_severity FROM v_returns_by_product").fetchall()
+    actual = {r[0] for r in rows}
+    assert actual <= valid, f"Severidades inválidas: {actual - valid}"
+
+
+def test_returns_by_customer_has_data(con):
+    """v_returns_by_customer debe tener datos."""
+    n = con.execute("SELECT COUNT(*) FROM v_returns_by_customer").fetchone()[0]
+    assert n > 0, "v_returns_by_customer está vacía"
+
+
+def test_returns_by_customer_severity_valid(con):
+    """Las severidades de cliente deben ser válidas."""
+    valid = {"no_returns", "high_returner", "medium_returner", "low_returner"}
+    rows = con.execute("SELECT DISTINCT returner_severity FROM v_returns_by_customer").fetchall()
+    actual = {r[0] for r in rows}
+    assert actual <= valid, f"Severidades inválidas: {actual - valid}"
+
+
+def test_returns_by_customer_no_null_customer_id(con):
+    """No debe haber customer_id nulos."""
+    n = con.execute("""
+        SELECT COUNT(*) FROM v_returns_by_customer WHERE customer_id IS NULL
+    """).fetchone()[0]
+    assert n == 0, f"Hay {n} customer_id nulos"
+
+
+def test_returns_by_product_severity_valid(con):
+    """Las severidades deben ser válidas (incluye no_sales_but_returns)."""
+    valid = {
+        "no_returns", "no_sales_but_returns",
+        "high_return_rate", "medium_return_rate", "low_return_rate",
+    }
+    rows = con.execute("SELECT DISTINCT return_severity FROM v_returns_by_product").fetchall()
+    actual = {r[0] for r in rows}
+    assert actual <= valid, f"Severidades inválidas: {actual - valid}"
+
+
+def test_no_sales_but_returns_has_null_rate(con):
+    """Los no_sales_but_returns deben tener return_rate NULL."""
+    n_bad = con.execute("""
+        SELECT COUNT(*) FROM v_returns_by_product
+        WHERE return_severity = 'no_sales_but_returns'
+          AND return_rate_recent_pct IS NOT NULL
+    """).fetchone()[0]
+    assert n_bad == 0, f"Hay {n_bad} no_sales_but_returns con return_rate no nulo"
+
+
+def test_returns_by_product_rates_in_range(con):
+    """Las tasas de devolución deben estar entre 0 y 100 (si no son NULL)."""
+    row = con.execute("""
+        SELECT MIN(return_rate_recent_pct), MAX(return_rate_recent_pct)
+        FROM v_returns_by_product
+        WHERE return_rate_recent_pct IS NOT NULL
+    """).fetchone()
+    assert row[0] >= 0, f"Tasa mínima negativa: {row[0]}"
+    assert row[1] <= 100, f"Tasa máxima > 100: {row[1]}"
+
     

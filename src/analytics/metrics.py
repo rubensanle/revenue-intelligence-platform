@@ -202,3 +202,34 @@ def get_top_customers_by_revenue(start_date: date, end_date: date, limit: int = 
         """, [p.start_date, p.end_date, limit]).df()
     finally:
         con.close()
+
+# metrics.py
+def get_returns_by_product(limit: int = 10) -> pd.DataFrame:
+    """Top productos con más devoluciones."""
+    con = _con()
+    try:
+        return con.execute("""
+            SELECT stock_code, description, units_returned_recent,
+                   return_rate_recent_pct, return_severity
+            FROM v_returns_by_product
+            WHERE return_severity = 'high_return_rate'
+            ORDER BY units_returned_recent DESC
+            LIMIT ?
+        """, [limit]).df()
+    finally:
+        con.close()
+
+
+def get_returns_by_customer(limit: int = 10) -> pd.DataFrame:
+    """Top clientes que más devuelven."""
+    con = _con()
+    try:
+        return con.execute("""
+            SELECT customer_id, country, units_returned_recent,
+                   revenue_returned_recent, return_rate_units_pct
+            FROM v_returns_by_customer
+            ORDER BY units_returned_recent DESC
+            LIMIT ?
+        """, [limit]).df()
+    finally:
+        con.close()

@@ -160,17 +160,28 @@ def q2_product_trend() -> pd.DataFrame:
     """
     Clasifica productos por tendencia: últimos 6 meses vs 6 meses anteriores.
 
-    Reglas:
-        - anomaly_returns:  devoluciones > ventas en el período reciente.
-        - new_launch:       primera venta después de 2011-02-01 (base no comparable).
-        - dormant:          existía antes pero no vendió en el período anterior.
-        - dead:             vendía antes, ahora no.
-        - growing:          +50% en el período reciente (base comparable).
-        - declining:        -50% en el período reciente (base comparable).
-        - stable:           resto (base comparable).
+    Reglas (orden de prioridad):
+        - anomaly_returns:     tasa de devolución > 50% en el período reciente,
+                               o units_previous < 0 (devoluciones masivas históricas).
+        - new_launch:          primera venta después de 2011-02-01 (base no comparable).
+        - dormant:             existía antes pero no vendió en el período anterior.
+        - dead:                vendía antes, ahora no.
+        - wholesale_dependent: alguna línea supera 10.000 unidades (pedido mayorista
+                               puntual que distorsiona la serie).
+        - growing:             +50% en el período reciente (base comparable).
+        - declining:           -50% en el período reciente (base comparable).
+        - stable:              resto (base comparable).
 
-    growth_pct solo se calcula si first_sale_date < 2011-02-01 y units_previous > 0.
-    Para new_launch y dormant se usan métricas absolutas:
+    growth_pct solo se calcula si:
+        - first_sale_date < 2011-02-01 (base comparable temporalmente).
+        - units_previous > 0 (hay base positiva).
+        - max_line_recent y max_line_previous <= 10.000 (sin pedidos mayoristas extremos).
+
+    return_rate_recent_pct = devoluciones / (ventas + devoluciones) * 100
+        - > 50% → anomaly_returns (devolvió más de la mitad de lo que vendió).
+        - Permite distinguir devolución normal (ej: 7% sobre 500) de anomalía (ej: 80% sobre 10).
+
+    Para new_launch, dormant y wholesale_dependent se usan métricas absolutas:
         - units_per_month_recent
         - n_invoices_recent
         - avg_units_per_invoice
@@ -182,7 +193,10 @@ def q2_product_trend() -> pd.DataFrame:
                 SELECT
                     stock_code,
                     SUM(units_net_line)         AS units_recent,
-                    COUNT(DISTINCT invoice_no)  AS n_invoices_recent
+                    SUM(returns_line)           AS returns_recent,
+                    SUM(units_sold_line)        AS sold_recent,
+                    COUNT(DISTINCT invoice_no)  AS n_invoices_recent,
+                    MAX(ABS(units_net_line))    AS max_line_recent
                 FROM v_sales_lines
                 WHERE is_product AND NOT is_partial_month
                   AND line_type IN ('sale', 'cancellation', 'return')
@@ -193,7 +207,8 @@ def q2_product_trend() -> pd.DataFrame:
             previous AS (
                 SELECT
                     stock_code,
-                    SUM(units_net_line) AS units_previous
+                    SUM(units_net_line)         AS units_previous,
+                    MAX(ABS(units_net_line))    AS max_line_previous
                 FROM v_sales_lines
                 WHERE is_product AND NOT is_partial_month
                   AND line_type IN ('sale', 'cancellation', 'return')
@@ -214,10 +229,19 @@ def q2_product_trend() -> pd.DataFrame:
                 COALESCE(p.units_previous, 0)        AS units_previous,
                 COALESCE(r.units_recent, 0) - COALESCE(p.units_previous, 0) AS delta,
 
-                -- growth_pct: solo si es comparable
+                -- Tasa de devolución reciente (%)
+                ROUND(
+                    100.0 * COALESCE(r.returns_recent, 0)
+                    / NULLIF(COALESCE(r.sold_recent, 0) + COALESCE(r.returns_recent, 0), 0),
+                    2
+                ) AS return_rate_recent_pct,
+
+                -- growth_pct: NULL si no es comparable
                 CASE
                     WHEN f.first_sale_date >= DATE '2011-02-01' THEN NULL
-                    WHEN COALESCE(p.units_previous, 0) = 0        THEN NULL
+                    WHEN COALESCE(p.units_previous, 0) <= 0       THEN NULL
+                    WHEN COALESCE(r.max_line_recent, 0) > 10000
+                      OR COALESCE(p.max_line_previous, 0) > 10000 THEN NULL
                     ELSE ROUND(
                         100.0 * (COALESCE(r.units_recent, 0) - COALESCE(p.units_previous, 0))
                         / NULLIF(ABS(COALESCE(p.units_previous, 0)), 0),
@@ -225,7 +249,7 @@ def q2_product_trend() -> pd.DataFrame:
                     )
                 END AS growth_pct,
 
-                -- Métricas absolutas (para todos, especialmente new_launch/dormant)
+                -- Métricas absolutas (para todos, especialmente new_launch/dormant/wholesale)
                 ROUND(COALESCE(r.units_recent, 0) / 6.0, 1)                    AS units_per_month_recent,
                 COALESCE(r.n_invoices_recent, 0)                               AS n_invoices_recent,
                 ROUND(
@@ -236,10 +260,18 @@ def q2_product_trend() -> pd.DataFrame:
                 f.first_sale_date,
 
                 CASE
-                    WHEN COALESCE(r.units_recent, 0) < 0 THEN 'anomaly_returns'
+                    -- Anomalía reciente: tasa de devolución > 50%
+                    WHEN COALESCE(r.returns_recent, 0) > 0
+                         AND 100.0 * COALESCE(r.returns_recent, 0)
+                             / NULLIF(COALESCE(r.sold_recent, 0) + COALESCE(r.returns_recent, 0), 0) > 50
+                         THEN 'anomaly_returns'
+                    -- Anomalía histórica: units_previous < 0 (devoluciones masivas en período anterior)
+                    WHEN COALESCE(p.units_previous, 0) < 0 THEN 'anomaly_returns'
                     WHEN f.first_sale_date >= DATE '2011-02-01' THEN 'new_launch'
                     WHEN COALESCE(p.units_previous, 0) = 0 THEN 'dormant'
                     WHEN COALESCE(r.units_recent, 0) = 0   THEN 'dead'
+                    WHEN COALESCE(r.max_line_recent, 0) > 10000
+                      OR COALESCE(p.max_line_previous, 0) > 10000 THEN 'wholesale_dependent'
                     WHEN r.units_recent > p.units_previous * 1.5 THEN 'growing'
                     WHEN r.units_recent < p.units_previous * 0.5 THEN 'declining'
                     ELSE 'stable'
@@ -411,6 +443,40 @@ def q5_forecastability() -> pd.DataFrame:
             FROM stats s
             CROSS JOIN all_weeks w
             ORDER BY total_units DESC
+        """).df()
+    finally:
+        con.close()
+
+# ---------------------------------------------------------------------------
+# Pregunta 6: ¿Qué productos y clientes tienen altas tasas de devolución?
+# ---------------------------------------------------------------------------
+
+def q6_returns_by_product() -> pd.DataFrame:
+    """Devoluciones por producto: top, tasas, tendencias."""
+    con = _con()
+    try:
+        return con.execute("""
+            SELECT stock_code, description, units_returned_recent,
+                   units_sold_recent, return_rate_recent_pct,
+                   returns_delta, returns_growth_pct, return_severity
+            FROM v_returns_by_product
+            ORDER BY units_returned_recent DESC
+        """).df()
+    finally:
+        con.close()
+
+
+
+def q6_returns_by_customer() -> pd.DataFrame:
+    """Devoluciones por cliente: top, tasas, revenue devuelto."""
+    con = _con()
+    try:
+        return con.execute("""
+            SELECT customer_id, country, units_returned_recent,
+                   units_sold_recent, revenue_returned_recent,
+                   return_rate_units_pct, returner_severity
+            FROM v_returns_by_customer
+            ORDER BY units_returned_recent DESC
         """).df()
     finally:
         con.close()
