@@ -253,7 +253,7 @@ def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
 
     return (
         df.groupby("model")
-        .agg(**agg_dict)
+        .agg(**agg_dict) 
         .round(4)
         .sort_values("wape_mean")
     )
