@@ -4,7 +4,8 @@ Módulo D.3 — Modelo LightGBM global.
 Un único modelo para todos los productos y horizontes.
 `stock_code` y `week_of_year` son features categóricas.
 
-Objetivo: regression_l1 (MAE), alineado con la métrica de evaluación.
+Permite parametrizar el `objective` y `metric` para experimentar con
+regression_l1, regression, poisson o tweedie.
 """
 
 from __future__ import annotations
@@ -41,6 +42,9 @@ def train_lightgbm(
     num_leaves: int = 31,
     min_child_samples: int = 20,
     random_state: int = 42,
+    objective: str = "regression_l1",     # ← NUEVO
+    metric: str = "mae",                  # ← NUEVO
+    tweedie_variance_power: float = 1.5,  # ← NUEVO (solo tweedie)
 ) -> lgb.LGBMRegressor:
     """
     Entrena un LGBMRegressor global.
@@ -54,6 +58,11 @@ def train_lightgbm(
     num_leaves : hojas por árbol.
     min_child_samples : mínimo de muestras por hoja (regularización).
     random_state : semilla.
+    objective : función de pérdida de LightGBM
+                ('regression_l1').
+    metric : métrica de evaluación (debe coincidir con objective).
+             'mae' para l1 para regression' para los otros.
+    tweedie_variance_power : solo para objective='tweedie'.
 
     Devuelve
     --------
@@ -75,17 +84,21 @@ def train_lightgbm(
     X_train = train_df[FEATURE_COLS]
     y_train = train_df["y_true"].to_numpy(dtype=float)
 
-    # 2. Crear modelo
-    model = lgb.LGBMRegressor(
-        objective="regression_l1",   # MAE (robusto a outliers)
-        metric="mae",
-        n_estimators=n_estimators,
-        learning_rate=learning_rate,
-        num_leaves=num_leaves,
-        min_child_samples=min_child_samples,
-        random_state=random_state,
-        verbose=-1,
-    )
+    # 2. Crear modelo (parametrizado)
+    params = {
+        "objective": objective,
+        "metric": metric,
+        "n_estimators": n_estimators,
+        "learning_rate": learning_rate,
+        "num_leaves": num_leaves,
+        "min_child_samples": min_child_samples,
+        "random_state": random_state,
+        "verbose": -1,
+    }
+    if objective == "tweedie":
+        params["tweedie_variance_power"] = tweedie_variance_power
+
+    model = lgb.LGBMRegressor(**params)
 
     # 3. Preparar validación
     fit_kwargs = {}
@@ -111,7 +124,7 @@ def train_lightgbm(
         if best_iter is not None:
             logger.info("Best iteration: %d", best_iter)
         try:
-            logger.info("Best MAE (valid): %.4f", model.best_score_["valid_0"]["l1"])
+            logger.info("Best %s (valid): %.4f", metric, model.best_score_["valid_0"][metric])
         except (KeyError, AttributeError):
             pass
 
