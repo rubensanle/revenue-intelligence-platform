@@ -1,5 +1,5 @@
 """
-Módulo D.3 — Construcción de features temporales sin leakage.
+Módulo D.3/D.4 — Construcción de features temporales sin leakage.
 
 Principio:
     Todas las features de un corte T se calculan usando SOLO datos ≤ T.
@@ -16,12 +16,12 @@ Notas:
       que evita leakage pero no distingue entre horizontes.
     - y_true se devuelve separado para evitar usarlo como feature por error.
     - week_of_year se trata como categórica (LightGBM la maneja así).
+    - include_future=True mantiene filas sin y_true para predecir el futuro.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,7 @@ def build_features(
     horizon: int = 4,
     min_history_weeks: int = 52,
     return_y_true: bool = True,
+    include_future: bool = False,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.Series]:
     """
     Construye el dataset de features para un corte concreto.
@@ -68,13 +69,16 @@ def build_features(
     min_history_weeks : semanas mínimas de historia por producto.
     return_y_true : si True, devuelve (features, y_true) separados.
                     Si False, devuelve un solo DataFrame con y_true incluido.
+    include_future : si True, mantiene filas sin y_true (predicción futura).
+                     Si False (default), las elimina (backtesting).
 
     Devuelve
     --------
     - Si return_y_true=True: (features_df, y_true_series)
     - Si return_y_true=False: DataFrame con y_true incluido.
 
-    En ambos casos, se excluyen filas sin y_true (futuro no observado).
+    Si include_future=False, se excluyen filas sin y_true.
+    Si include_future=True, se mantienen (con NaN en y_true).
     """
     if horizon < 1:
         raise ValueError("horizon debe ser >= 1")
@@ -105,7 +109,7 @@ def build_features(
         if len(y) < 52:
             continue
 
-        # Calcular lags/rolling una sola vez por producto (son iguales para todos los h)
+        # Calcular lags/rolling una sola vez por producto
         lag_1 = float(y[-1]) if len(y) >= 1 else np.nan
         lag_2 = float(y[-2]) if len(y) >= 2 else np.nan
         lag_4 = float(y[-4]) if len(y) >= 4 else np.nan
@@ -141,7 +145,9 @@ def build_features(
 
     out = pd.DataFrame(out_rows)
     if out.empty:
-        empty_feat = pd.DataFrame(columns=["stock_code", "week_start", "horizon"] + FEATURE_COLS)
+        empty_feat = pd.DataFrame(
+            columns=["stock_code", "week_start", "horizon"] + FEATURE_COLS
+        )
         empty_y = pd.Series(dtype=float)
         return (empty_feat, empty_y) if return_y_true else pd.DataFrame()
 
@@ -152,7 +158,10 @@ def build_features(
     out = out.drop(columns=["y_true"]).merge(
         y_true_df, on=["stock_code", "week_start"], how="left"
     )
-    out = out.dropna(subset=["y_true"]).reset_index(drop=True)
+
+    # Excluir filas sin y_true SALVO si include_future=True
+    if not include_future:
+        out = out.dropna(subset=["y_true"]).reset_index(drop=True)
 
     if return_y_true:
         features = out.drop(columns=["y_true"])

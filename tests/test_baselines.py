@@ -23,7 +23,10 @@ from src.models.metrics import (
     mae,
     mase,
     wape,
+    conformal_interval, 
 )
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -401,3 +404,16 @@ def test_rolling_origin_train_has_52_weeks():
     for s in splits:
         n_train_weeks = (s.train_end - s.train_start).days // 7 + 1
         assert n_train_weeks >= 53
+
+
+def test_conformal_interval_coverage():
+    """Con residuos conocidos, la cobertura debe ser ~ la pedida."""
+    rng = np.random.default_rng(42)
+    y_pred = np.full(1000, 100.0)
+    residuals = np.abs(rng.normal(0, 10, 1000))
+    lower, upper = conformal_interval(y_pred, residuals, coverage=0.8)
+    # Todos los intervalos deben ser del mismo ancho
+    assert np.allclose(upper - lower, upper[0] - lower[0])
+    # El ancho debe ser aproximadamente el percentil 80 de los residuos
+    expected_width = 2 * np.quantile(residuals, 0.8)
+    assert np.allclose(upper[0] - lower[0], expected_width, rtol=1e-6)

@@ -1,14 +1,15 @@
 """
-Módulo D.3 — Pipeline de backtesting completo.
+Módulo D.3/D.4 — Pipeline de backtesting completo.
 
 Orquesta:
     1. Generación de cortes de backtesting.
     2. Para cada corte:
         a. Entrenar LightGBM con datos hasta el corte.
         b. Predecir con LightGBM.
-        c. Predecir con baselines.
-        d. Evaluar todos los modelos (incluyendo MASE).
-        e. Guardar predicciones para análisis de coste asimétrico.
+        c. Calcular intervalos conformales en validación.
+        d. Predecir con baselines.
+        e. Evaluar todos los modelos (incluyendo MASE y cobertura).
+        f. Guardar predicciones para análisis de coste asimétrico.
     3. Agregar resultados.
 """
 
@@ -32,7 +33,7 @@ from src.models.baselines import (
 )
 from src.models.features import build_features
 from src.models.lightgbm_model import predict_lightgbm, train_lightgbm
-from src.models.metrics import evaluate_forecast
+from src.models.metrics import conformal_interval, evaluate_forecast
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT_DIR / "data" / "processed" / "revenue.duckdb"
@@ -87,9 +88,10 @@ def run_backtesting(
     n_splits: int = 8,
     horizon: int = 4,
     save_predictions: bool = True,
-    objective: str = "regression_l1",     # ← NUEVO
-    metric: str = "mae",                  # ← NUEVO
-    predictions_path: Path | None = None, # ← NUEVO (para no sobreescribir)
+    objective: str = "regression_l1",
+    metric: str = "mae",
+    predictions_path: Path | None = None,
+    conformal_coverage: float = 0.8,
 ) -> pd.DataFrame:
     """
     Ejecuta el backtesting completo.
@@ -101,8 +103,8 @@ def run_backtesting(
     save_predictions : si True, guarda backtest_predictions.parquet.
     objective : objective de LightGBM ('regression_l1', 'regression', ...).
     metric : métrica de evaluación.
-    predictions_path : ruta alternativa para guardar predicciones
-                       (útil para comparar objectives sin sobreescribir).
+    predictions_path : ruta alternativa para guardar predicciones.
+    conformal_coverage : cobertura objetivo de los intervalos (0.8 = 80%).
     """
     logger.info("Cargando serie semanal...")
     df = load_forecastable_series()
@@ -136,7 +138,7 @@ def run_backtesting(
         train_mask = features_df["week_start"] < cutoff_week_valid
         valid_mask = features_df["week_start"] >= cutoff_week_valid
 
-        # 3. Entrenar LightGBM (parametrizado)
+        # 3. Entrenar LightGBM
         model = train_lightgbm(
             train_df=features_df[train_mask],
             valid_df=features_df[valid_mask],
@@ -144,7 +146,17 @@ def run_backtesting(
             metric=metric,
         )
 
-        # 4. Predecir con LightGBM
+        # 4. Conformal: calcular residuos en validación
+        valid_preds = predict_lightgbm(model, features_df[valid_mask])
+        valid_residuals = np.abs(
+            valid_preds["y_true"].values - valid_preds["y_pred"].values
+        )
+        logger.info(
+            f"  Residuos validación: n={len(valid_residuals)}, "
+            f"q{int(conformal_coverage*100)}={np.quantile(valid_residuals, conformal_coverage):.2f}"
+        )
+
+        # 5. Predecir con LightGBM sobre todo features_df
         lgb_preds = predict_lightgbm(model, features_df)
         lgb_preds = _ensure_str_stock_code(lgb_preds)
         lgb_preds = lgb_preds[
@@ -152,18 +164,29 @@ def run_backtesting(
             & (lgb_preds["week_start"] <= test_end_ts)
         ].dropna(subset=["y_true"])
 
-        # 5. Datos hasta cutoff
+        # 6. Aplicar intervalos conformales a las predicciones de test
+        if not lgb_preds.empty:
+            lower, upper = conformal_interval(
+                lgb_preds["y_pred"].values,
+                valid_residuals,
+                coverage=conformal_coverage,
+            )
+            lgb_preds = lgb_preds.copy()
+            lgb_preds["lower"] = lower
+            lgb_preds["upper"] = upper
+
+        # 7. Datos hasta cutoff
         df_train = df[df["week_start"] <= cutoff_ts].copy()
         y_true_map = features_df.set_index(["stock_code", "week_start"])["y_true"]
 
-        # 6. y_train map
+        # 8. y_train map
         stock_codes_in_test = (
             lgb_preds["stock_code"].unique().tolist()
             if not lgb_preds.empty else []
         )
         y_train_map = _build_y_train_map(df_train, stock_codes_in_test)
 
-        # 7. Evaluar LightGBM
+        # 9. Evaluar LightGBM (con cobertura)
         if not lgb_preds.empty:
             lgb_preds = lgb_preds.copy()
             lgb_preds["y_train"] = lgb_preds["stock_code"].map(y_train_map)
@@ -176,22 +199,25 @@ def run_backtesting(
                 y_train_col="y_train",
                 group_cols=["stock_code"],
                 seasonality=52,
+                lower_col="lower",
+                upper_col="upper",
             )
-            lgb_metrics["model"] = f"lightgbm_{objective}"   # ← NUEVO: distinguir objectives
+            lgb_metrics["model"] = f"lightgbm_{objective}"
             lgb_metrics["split_id"] = i
             lgb_metrics["cutoff"] = split.cutoff
-            all_metrics.append(lgb_metrics)
+            all_metrics.append(lgb_metrics) 
 
             if save_predictions:
-                preds_to_save = lgb_preds[["stock_code", "week_start", "y_true", "y_pred"]].copy()
-                preds_to_save["model"] = f"lightgbm_{objective}"   # ← NUEVO
+                preds_to_save = lgb_preds[
+                    ["stock_code", "week_start", "y_true", "y_pred", "lower", "upper", "horizon"]
+                ].copy()
+                preds_to_save["model"] = f"lightgbm_{objective}"
                 preds_to_save["split_id"] = i
                 all_predictions.append(preds_to_save)
         else:
             logger.warning(f"  LightGBM sin predicciones válidas para corte {i}")
 
-        # 8. Baselines (solo una vez, sin duplicar por objective)
-        #    Si objective != "regression_l1", no repetimos baselines.
+        # 10. Baselines (solo una vez, sin duplicar por objective)
         if objective == "regression_l1":
             baselines = {
                 "mean": mean_forecast,
@@ -237,18 +263,23 @@ def run_backtesting(
                     all_metrics.append(m)
 
                     if save_predictions:
-                        preds_to_save = preds[["stock_code", "week_start", "y_true", "y_pred"]].copy()
+                        preds_to_save = preds[
+                            ["stock_code", "week_start", "y_true", "y_pred"]
+                        ].copy()
                         preds_to_save["model"] = name
                         preds_to_save["split_id"] = i
                         all_predictions.append(preds_to_save)
                 except Exception as e:
                     logger.warning(f"  Baseline {name} falló: {e}")
 
-    # Guardar predicciones (ruta parametrizable)
+    # Guardar predicciones
     if save_predictions and all_predictions:
         preds_df = pd.concat(all_predictions, ignore_index=True)
         if predictions_path is None:
-            predictions_path = ROOT_DIR / "data" / "processed" / f"backtest_predictions_{objective}.parquet"
+            predictions_path = (
+                ROOT_DIR / "data" / "processed"
+                / f"backtest_predictions_{objective}.parquet"
+            )
         preds_df.to_parquet(predictions_path, index=False)
         logger.info(f"Predicciones guardadas: {predictions_path} ({len(preds_df):,} filas)")
 
@@ -259,7 +290,7 @@ def run_backtesting(
 
 
 def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrega métricas por modelo (MASE solo si existe)."""
+    """Agrega métricas por modelo (MASE y cobertura si existen)."""
     agg_dict = {
         "mae_mean": ("mae", "mean"),
         "mae_median": ("mae", "median"),
@@ -271,12 +302,15 @@ def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
     if "mase" in df.columns:
         agg_dict["mase_mean"] = ("mase", "mean")
         agg_dict["mase_median"] = ("mase", "median")
+    if "coverage" in df.columns:
+        agg_dict["coverage_mean"] = ("coverage", "mean")
 
-    return (
+        return (
         df.groupby("model")
         .agg(**agg_dict)
         .round(4)
         .sort_values("wape_mean")
+        .reset_index()
     )
 
 

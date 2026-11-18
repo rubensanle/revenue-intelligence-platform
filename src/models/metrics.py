@@ -97,6 +97,17 @@ def coverage(
     inside = (y_true >= lower) & (y_true <= upper)
     return float(np.mean(inside))
 
+def conformal_interval(
+    y_pred: np.ndarray,
+    residuals: np.ndarray,
+    coverage: float = 0.8,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Intervalos por conformal prediction (cuantil de residuos absolutos)."""
+    q = float(np.quantile(residuals, coverage))
+    lower = np.clip(y_pred - q, 0, None)
+    upper = y_pred + q
+    return lower, upper
+
 
 # ---------------------------------------------------------------------------
 # Función agregada para evaluar un modelo completo
